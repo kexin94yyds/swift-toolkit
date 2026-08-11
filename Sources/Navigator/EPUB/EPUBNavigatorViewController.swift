@@ -785,6 +785,8 @@ open class EPUBNavigatorViewController: InputObservableViewController,
     }
 
     public func clearSelection() {
+        viewModel.editingActions.clearSelection()
+
         guard let paginationView = paginationView else {
             return
         }

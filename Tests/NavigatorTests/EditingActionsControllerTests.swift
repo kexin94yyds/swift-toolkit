@@ -137,4 +137,20 @@ struct EditingActionsControllerTests {
         #expect(actionSelection?.locator.href == selection.locator.href)
         #expect(controller.currentSelection == nil)
     }
+
+    @Test("explicit clearing discards a retained selection")
+    func explicitClearingDiscardsRetainedSelection() {
+        let delegate = FakeDelegate()
+        let controller = makeController(delegate)
+        controller.selection = selection
+        controller.selection = nil
+        controller.clearSelection()
+
+        var actionSelection: Selection?
+        controller.performCustomAction {
+            actionSelection = controller.currentSelection
+        }
+
+        #expect(actionSelection == nil)
+    }
 }

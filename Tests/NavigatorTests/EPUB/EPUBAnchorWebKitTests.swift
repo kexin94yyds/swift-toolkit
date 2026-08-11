@@ -45,6 +45,38 @@ final class EPUBAnchorWebKitTests: XCTestCase {
         XCTAssertNotNil(domRange["end"])
     }
 
+    func testSelectionPayloadIsCapturedBeforeImmediateCollapse() async throws {
+        let harness = try await WebKitAnchorHarness(
+            html: """
+            <!doctype html>
+            <html><body><p>selection snapshot</p></body></html>
+            """
+        )
+
+        let selectionExpectation = expectation(description: "Selection snapshot")
+        harness.messageSink.selectionExpectation = selectionExpectation
+
+        try await harness.evaluate("""
+        (() => {
+          const node = document.querySelector("p").firstChild;
+          const range = document.createRange();
+          range.setStart(node, 0);
+          range.setEnd(node, 9);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event("selectionchange"));
+          selection.removeAllRanges();
+        })();
+        """)
+
+        await fulfillment(of: [selectionExpectation], timeout: 2)
+        XCTAssertEqual(
+            harness.messageSink.selectionBodies.last?["text"] as? [String: String],
+            ["highlight": "selection", "before": "", "after": " snapshot"]
+        )
+    }
+
     func testDragEndingOnDecorationForwardsTerminalPointerEvent() async throws {
         let harness = try await WebKitAnchorHarness(
             html: """

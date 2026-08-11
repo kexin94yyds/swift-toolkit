@@ -99,7 +99,6 @@ final class EditingActionsController {
     private var isEnabled = true
     private var retainedSelection: Selection?
     private var selectionDuringCustomAction: Selection?
-    private var clearRetainedSelectionWorkItem: DispatchWorkItem?
 
     init(
         actions: [EditingAction],
@@ -114,12 +113,10 @@ final class EditingActionsController {
     var selection: Selection? {
         didSet {
             if let selection = selection {
-                clearRetainedSelectionWorkItem?.cancel()
                 retainedSelection = selection
                 isEnabled = delegate?.editingActions(self, shouldShowMenuForSelection: selection) ?? true
             } else {
                 isEnabled = false
-                retainSelectionBrieflyForCustomAction()
             }
             updateSharedMenuController()
         }
@@ -233,20 +230,16 @@ final class EditingActionsController {
     /// selection before invoking its `UIAction`, which otherwise makes the
     /// host selector observe `currentSelection == nil`.
     func performCustomAction(_ action: () -> Void) {
-        clearRetainedSelectionWorkItem?.cancel()
         selectionDuringCustomAction = selection ?? retainedSelection
         action()
         selectionDuringCustomAction = nil
         retainedSelection = nil
     }
 
-    private func retainSelectionBrieflyForCustomAction() {
-        clearRetainedSelectionWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.retainedSelection = nil
-        }
-        clearRetainedSelectionWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: workItem)
+    func clearSelection() {
+        selection = nil
+        retainedSelection = nil
+        selectionDuringCustomAction = nil
     }
 
     func updateSharedMenuController() {

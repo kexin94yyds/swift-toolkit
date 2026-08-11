@@ -136,12 +136,35 @@ function onScroll() {
   ticking = true;
 }
 
-document.addEventListener(
-  "selectionchange",
-  debounce(50, function () {
-    webkit.messageHandlers.selectionChanged.postMessage(getCurrentSelection());
-  })
-);
+let pendingSelectionChange;
+let selectionChangeNotification;
+document.addEventListener("selectionchange", function () {
+  // Snapshot a non-empty selection synchronously. On recent iOS releases,
+  // WebKit can collapse the DOM selection while presenting or dispatching an
+  // edit-menu action; reading it from the old debounced callback then loses
+  // the range before native code ever sees it.
+  const selection = getCurrentSelection();
+  if (selection || pendingSelectionChange === undefined) {
+    pendingSelectionChange = selection;
+  }
+
+  clearTimeout(selectionChangeNotification);
+  selectionChangeNotification = setTimeout(function () {
+    const selection = pendingSelectionChange;
+    pendingSelectionChange = undefined;
+    webkit.messageHandlers.selectionChanged.postMessage(selection);
+
+    // If WebKit collapsed the DOM selection while the snapshot was pending,
+    // publish the clear after native code has received the valid range. The
+    // native editing-action controller retains that range until the custom
+    // action is dispatched.
+    if (selection && !getCurrentSelection()) {
+      selectionChangeNotification = setTimeout(function () {
+        webkit.messageHandlers.selectionChanged.postMessage(null);
+      }, 50);
+    }
+  }, 50);
+});
 
 export function getColumnCountPerScreen() {
   return parseInt(
@@ -428,20 +451,6 @@ export function removeProperty(key) {
 }
 
 /// Toolkit
-
-function debounce(delay, func) {
-  var timeout;
-  return function () {
-    var self = this;
-    var args = arguments;
-    function callback() {
-      func.apply(self, args);
-      timeout = null;
-    }
-    clearTimeout(timeout);
-    timeout = setTimeout(callback, delay);
-  };
-}
 
 export function log() {
   var message = Array.prototype.slice.call(arguments).join(" ");
