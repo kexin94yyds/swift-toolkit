@@ -781,7 +781,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
     // MARK: - SelectableNavigator
 
     public var currentSelection: Selection? {
-        viewModel.editingActions.selection
+        viewModel.editingActions.currentSelection
     }
 
     public func clearSelection() {

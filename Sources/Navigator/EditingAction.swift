@@ -97,6 +97,9 @@ final class EditingActionsController {
     private let rights: UserRights
     private let canShare: Bool
     private var isEnabled = true
+    private var retainedSelection: Selection?
+    private var selectionDuringCustomAction: Selection?
+    private var clearRetainedSelectionWorkItem: DispatchWorkItem?
 
     init(
         actions: [EditingAction],
@@ -111,12 +114,22 @@ final class EditingActionsController {
     var selection: Selection? {
         didSet {
             if let selection = selection {
+                clearRetainedSelectionWorkItem?.cancel()
+                retainedSelection = selection
                 isEnabled = delegate?.editingActions(self, shouldShowMenuForSelection: selection) ?? true
             } else {
                 isEnabled = false
+                retainSelectionBrieflyForCustomAction()
             }
             updateSharedMenuController()
         }
+    }
+
+    /// Selection exposed to navigator clients, including while a custom menu
+    /// action is being dispatched after WebKit already collapsed the DOM
+    /// selection.
+    var currentSelection: Selection? {
+        selection ?? selectionDuringCustomAction
     }
 
     func canPerformAction(_ action: EditingAction) -> Bool {
@@ -198,12 +211,14 @@ final class EditingActionsController {
         let customActions: [UIAction] = actions
             .filter(shouldShowCustomAction)
             .compactMap(\.menuItem)
-            .map { item in
-                UIAction(title: item.title) { _ in
-                    // Dispatch through the responder chain (starting at the
-                    // current first responder), so the host app's selector
-                    // implementation is reached.
-                    UIApplication.shared.sendAction(item.action, to: nil, from: nil, for: nil)
+            .map { [weak self] item in
+                UIAction(title: item.title) { [weak self] _ in
+                    self?.performCustomAction {
+                        // Dispatch through the responder chain (starting at
+                        // the current first responder), so the host app's
+                        // selector implementation is reached.
+                        UIApplication.shared.sendAction(item.action, to: nil, from: nil, for: nil)
+                    }
                 }
             }
 
@@ -211,6 +226,27 @@ final class EditingActionsController {
             let menu = UIMenu(title: "", options: .displayInline, children: customActions)
             builder.insertChild(menu, atStartOfMenu: .standardEdit)
         }
+    }
+
+    /// Runs a custom edit-menu action with the latest non-empty selection
+    /// temporarily restored. `UIEditMenuInteraction` may collapse the WebKit
+    /// selection before invoking its `UIAction`, which otherwise makes the
+    /// host selector observe `currentSelection == nil`.
+    func performCustomAction(_ action: () -> Void) {
+        clearRetainedSelectionWorkItem?.cancel()
+        selectionDuringCustomAction = selection ?? retainedSelection
+        action()
+        selectionDuringCustomAction = nil
+        retainedSelection = nil
+    }
+
+    private func retainSelectionBrieflyForCustomAction() {
+        clearRetainedSelectionWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.retainedSelection = nil
+        }
+        clearRetainedSelectionWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: workItem)
     }
 
     func updateSharedMenuController() {

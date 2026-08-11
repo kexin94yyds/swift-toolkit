@@ -121,4 +121,20 @@ struct EditingActionsControllerTests {
 
         #expect(!controller.shouldShowCustomAction(.copy))
     }
+
+    @Test("custom action retains a selection collapsed by the edit menu")
+    func customActionRetainsCollapsedSelection() {
+        let delegate = FakeDelegate()
+        let controller = makeController(delegate)
+        controller.selection = selection
+        controller.selection = nil
+
+        var actionSelection: Selection?
+        controller.performCustomAction {
+            actionSelection = controller.currentSelection
+        }
+
+        #expect(actionSelection?.locator.href == selection.locator.href)
+        #expect(controller.currentSelection == nil)
+    }
 }

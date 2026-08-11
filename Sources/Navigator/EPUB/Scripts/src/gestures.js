@@ -10,6 +10,7 @@ import { findNearestInteractiveElement } from "./dom";
 import { getCssSelector } from "css-selector-generator";
 
 let isSelecting = false;
+const pointersStartingOnDecorations = new Set();
 
 window.addEventListener("DOMContentLoaded", function () {
   document.addEventListener("click", onClick, false);
@@ -69,6 +70,20 @@ function onPointerCancel(event) {
 }
 
 function onPointerEvent(phase, event) {
+  // A decoration owns a pointer sequence only when the gesture starts on it.
+  // If a drag starts in the reading surface and merely ends on a decoration,
+  // Swift must still receive the terminal event or its gesture state remains
+  // active and all later taps are ignored (#884).
+  if (phase === "down" && findDecorationTarget(event) != null) {
+    pointersStartingOnDecorations.add(event.pointerId);
+  }
+  if (pointersStartingOnDecorations.has(event.pointerId)) {
+    if (phase === "up" || phase === "cancel") {
+      pointersStartingOnDecorations.delete(event.pointerId);
+    }
+    return;
+  }
+
   // If the user is currently selecting text, we report this event as cancelled to prevent detecting gestures.
   if (isSelecting) {
     phase = "cancel";
@@ -101,10 +116,6 @@ function onPointerEvent(phase, event) {
     shift: event.shiftKey,
     command: event.metaKey,
   };
-
-  if (findDecorationTarget(event) != null) {
-    return;
-  }
 
   // Send the pointer data over the JS bridge even if it's been handled
   // within the webview, so that it can be preserved and used

@@ -10,6 +10,109 @@ import XCTest
 
 @MainActor
 final class EPUBAnchorWebKitTests: XCTestCase {
+    func testSelectionPayloadFromXHTMLDocument() async throws {
+        let harness = try await WebKitAnchorHarness(
+            html: """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE html>
+            <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Fixture</title></head>
+            <body><p>这是一个真机 EPUB 选区。</p></body></html>
+            """,
+            mimeType: "application/xhtml+xml"
+        )
+
+        let selectionExpectation = expectation(description: "XHTML selection payload")
+        harness.messageSink.selectionExpectation = selectionExpectation
+
+        try await harness.evaluate("""
+        (() => {
+          const node = document.querySelector("p").firstChild;
+          const range = document.createRange();
+          range.setStart(node, 0);
+          range.setEnd(node, 4);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event("selectionchange"));
+        })();
+        """)
+        await fulfillment(of: [selectionExpectation], timeout: 2)
+
+        let payload = try XCTUnwrap(harness.messageSink.selectionBodies.last)
+        let locations = try XCTUnwrap(payload["locations"] as? [String: Any])
+        let domRange = try XCTUnwrap(locations["domRange"] as? [String: Any])
+        XCTAssertNotNil(domRange["start"])
+        XCTAssertNotNil(domRange["end"])
+    }
+
+    func testDragEndingOnDecorationForwardsTerminalPointerEvent() async throws {
+        let harness = try await WebKitAnchorHarness(
+            html: """
+            <!doctype html>
+            <html><body><p id="target">highlight target</p></body></html>
+            """
+        )
+
+        let pointerExpectation = expectation(description: "Pointer down and terminal event")
+        pointerExpectation.expectedFulfillmentCount = 2
+        harness.messageSink.pointerExpectation = pointerExpectation
+
+        _ = try await harness.evaluate("""
+        (() => {
+          readium.registerDecorationTemplates({
+            anchorTest: { layout: "bounds", width: "wrap" },
+          });
+          const group = readium.getDecorations("pointer-terminal-webkit");
+          group.add({
+            id: "target",
+            locator: {
+              href: "chapter.xhtml",
+              type: "application/xhtml+xml",
+              locations: {
+                domRange: {
+                  start: { cssSelector: "#target", textNodeIndex: 0, charOffset: 0 },
+                  end: { cssSelector: "#target", textNodeIndex: 0, charOffset: 9 },
+                },
+              },
+              text: { highlight: "highlight" },
+            },
+            style: "anchorTest",
+            element: "<div></div>",
+          });
+          group.setActivable();
+        })();
+        """)
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        _ = try await harness.evaluate("""
+        (() => {
+          const group = readium.getDecorations("pointer-terminal-webkit");
+          const element = group.items[0].clickableElements[0];
+          const rect = element.getBoundingClientRect();
+          document.body.dispatchEvent(new PointerEvent("pointerdown", {
+            bubbles: true,
+            pointerId: 42,
+            pointerType: "touch",
+            clientX: rect.right + 40,
+            clientY: rect.bottom + 40,
+          }));
+          document.body.dispatchEvent(new PointerEvent("pointerup", {
+            bubbles: true,
+            pointerId: 42,
+            pointerType: "touch",
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+          }));
+        })();
+        """)
+
+        await fulfillment(of: [pointerExpectation], timeout: 2)
+        XCTAssertEqual(
+            harness.messageSink.pointerBodies.compactMap { $0["phase"] as? String },
+            ["down", "up"]
+        )
+    }
+
     func testEightRepeatedSelectionsResolveToDistinctDOMRanges() async throws {
         let harness = try await WebKitAnchorHarness(
             html: """
@@ -502,7 +605,7 @@ private final class WebKitAnchorHarness: NSObject, WKNavigationDelegate {
 
     private var navigationContinuation: CheckedContinuation<Void, Error>?
 
-    init(html: String) async throws {
+    init(html: String, mimeType: String? = nil) async throws {
         let controller = WKUserContentController()
         for name in [
             "decorationActivated",
@@ -532,7 +635,17 @@ private final class WebKitAnchorHarness: NSObject, WKNavigationDelegate {
         webView.navigationDelegate = self
         try await withCheckedThrowingContinuation { continuation in
             navigationContinuation = continuation
-            webView.loadHTMLString(html, baseURL: URL(string: "https://example.invalid/")!)
+            let baseURL = URL(string: "https://example.invalid/")!
+            if let mimeType {
+                webView.load(
+                    Data(html.utf8),
+                    mimeType: mimeType,
+                    characterEncodingName: "utf-8",
+                    baseURL: baseURL
+                )
+            } else {
+                webView.loadHTMLString(html, baseURL: baseURL)
+            }
         }
         try await evaluate("readium.link = { href: 'chapter.xhtml' };")
     }
@@ -564,10 +677,12 @@ private final class WebKitAnchorHarness: NSObject, WKNavigationDelegate {
 private final class WebKitMessageSink: NSObject, WKScriptMessageHandler {
     var selectionBodies: [[String: Any]] = []
     var decorationBodies: [[String: Any]] = []
+    var pointerBodies: [[String: Any]] = []
     var nullSelectionCount = 0
     weak var selectionExpectation: XCTestExpectation?
     weak var nullSelectionExpectation: XCTestExpectation?
     weak var decorationExpectation: XCTestExpectation?
+    weak var pointerExpectation: XCTestExpectation?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         switch message.name {
@@ -584,6 +699,10 @@ private final class WebKitMessageSink: NSObject, WKScriptMessageHandler {
             guard let body = message.body as? [String: Any] else { return }
             decorationBodies.append(body)
             decorationExpectation?.fulfill()
+        case "pointerEventReceived":
+            guard let body = message.body as? [String: Any] else { return }
+            pointerBodies.append(body)
+            pointerExpectation?.fulfill()
         default:
             break
         }
