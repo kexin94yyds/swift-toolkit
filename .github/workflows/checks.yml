@@ -109,11 +109,13 @@ jobs:
       - name: Setup cache
         uses: actions/setup-node@v3
         with:
-          node-version: 20
+          node-version: 24
           cache: 'pnpm'
           cache-dependency-path: Sources/Navigator/EPUB/Scripts/pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm --dir "$scripts" install --frozen-lockfile
+      - name: Test EPUB scripts
+        run: pnpm --dir "$scripts" run test
       - name: Lint
         run: pnpm --dir "$scripts" run lint
       - name: Check formatting
@@ -178,5 +180,3 @@ jobs:
         run: |
           set -eo pipefail
           xcodebuild build -scheme TestApp -destination "platform=$platform,name=$device" | xcbeautify --renderer github-actions
-
-

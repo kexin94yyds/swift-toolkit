@@ -6,7 +6,12 @@
 
 // Catch JS errors to log them in the app.
 
-import { TextQuoteAnchor } from "./vendor/hypothesis/anchoring/types";
+import {
+  AmbiguousTextQuoteError,
+  TextQuoteAnchor,
+} from "./vendor/hypothesis/anchoring/types";
+import { resolveDOMRange } from "./dom-range";
+import { normalizeSelectionText } from "./selection-text";
 import { getCurrentSelection } from "./selection";
 
 window.addEventListener(
@@ -293,13 +298,51 @@ function snapCurrentPosition() {
 }
 
 export function rangeFromLocator(locator) {
+  return resolveLocatorRange(locator).range;
+}
+
+export function resolveLocatorRange(
+  locator,
+  { requireUniqueTextQuote = false } = {}
+) {
   try {
-    let locations = locator.locations;
-    let text = locator.text;
+    const locations = locator.locations;
+    const text = locator.text;
+    let fallbackReason = null;
+
+    if (locations && locations.domRange) {
+      const resolved = resolveDOMRange(document, locations.domRange);
+      if (resolved.range) {
+        if (
+          !text ||
+          !text.highlight ||
+          resolved.range.toString() === text.highlight ||
+          normalizeSelectionText(resolved.range.toString()) === text.highlight
+        ) {
+          return { range: resolved.range, method: "domRange", reason: null };
+        }
+        fallbackReason = "dom_quote_mismatch";
+      } else {
+        fallbackReason = resolved.reason;
+      }
+    }
+
     if (text && text.highlight) {
-      var root;
+      let root;
       if (locations && locations.cssSelector) {
-        root = document.querySelector(locations.cssSelector);
+        if (requireUniqueTextQuote) {
+          const roots = document.querySelectorAll(locations.cssSelector);
+          if (roots.length > 1) {
+            return {
+              range: null,
+              method: null,
+              reason: "root_selector_not_unique",
+            };
+          }
+          root = roots[0];
+        } else {
+          root = document.querySelector(locations.cssSelector);
+        }
       }
       if (!root) {
         root = document.body;
@@ -310,7 +353,21 @@ export function rangeFromLocator(locator) {
         suffix: text.after,
       });
 
-      return anchor.toRange();
+      try {
+        return {
+          range: anchor.toRange({ requireUnique: requireUniqueTextQuote }),
+          method: "textQuote",
+          reason: fallbackReason,
+        };
+      } catch (error) {
+        if (
+          error instanceof AmbiguousTextQuoteError ||
+          error?.name === "AmbiguousTextQuoteError"
+        ) {
+          return { range: null, method: null, reason: "quote_ambiguous" };
+        }
+        return { range: null, method: null, reason: "quote_not_found" };
+      }
     }
 
     if (locations) {
@@ -333,14 +390,14 @@ export function rangeFromLocator(locator) {
         let range = document.createRange();
         range.setStartBefore(element);
         range.setEndAfter(element);
-        return range;
+        return { range, method: "element", reason: null };
       }
     }
-  } catch (e) {
-    logError(e);
+  } catch {
+    return { range: null, method: null, reason: "locator_invalid" };
   }
 
-  return null;
+  return { range: null, method: null, reason: "locator_not_found" };
 }
 
 /// User Settings.

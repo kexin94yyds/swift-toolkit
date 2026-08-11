@@ -6,6 +6,8 @@
 
 import { log as logNative, logError } from "./utils";
 import { toNativeRect } from "./rect";
+import { domRangeFromRange } from "./dom-range";
+import { normalizeSelectionText } from "./selection-text";
 import { TextRange } from "./vendor/hypothesis/anchoring/text-range";
 
 // Polyfill for iOS 12
@@ -22,22 +24,24 @@ export function getCurrentSelection() {
   if (!href) {
     return null;
   }
-  const text = getCurrentSelectionText();
+  const range = getCurrentSelectionRange();
+  if (!range) {
+    return null;
+  }
+  const domRange = domRangeFromRange(range);
+  if (!domRange) {
+    return null;
+  }
+  const text = getCurrentSelectionText(range);
   if (!text) {
     return null;
   }
-  const rect = getSelectionRect();
-  return { href, text, rect };
+  const rect = getSelectionRect(range);
+  return { href, text, locations: { domRange }, rect };
 }
 
-function getSelectionRect() {
+function getSelectionRect(range) {
   try {
-    let sel = window.getSelection();
-    if (!sel) {
-      return;
-    }
-    let range = sel.getRangeAt(0);
-
     return toNativeRect(range.getBoundingClientRect());
   } catch (e) {
     logError(e);
@@ -45,20 +49,12 @@ function getSelectionRect() {
   }
 }
 
-function getCurrentSelectionText() {
+function getCurrentSelectionRange() {
   const selection = window.getSelection();
   if (!selection) {
     return undefined;
   }
   if (selection.isCollapsed) {
-    return undefined;
-  }
-  const highlight = selection.toString();
-  const cleanHighlight = highlight
-    .trim()
-    .replace(/\n/g, " ")
-    .replace(/\s\s+/g, " ");
-  if (cleanHighlight.length === 0) {
     return undefined;
   }
   if (!selection.anchorNode || !selection.focusNode) {
@@ -75,6 +71,15 @@ function getCurrentSelectionText() {
         );
   if (!range || range.collapsed) {
     log("$$$$$$$$$$$$$$$$$ CANNOT GET NON-COLLAPSED SELECTION RANGE?!");
+    return undefined;
+  }
+  return range;
+}
+
+function getCurrentSelectionText(range) {
+  const highlight = range.toString();
+  const cleanHighlight = normalizeSelectionText(highlight);
+  if (cleanHighlight.length === 0) {
     return undefined;
   }
 
@@ -183,15 +188,15 @@ export function location2RangeInfo(location) {
   const locations = location.locations;
   const domRange = locations.domRange;
   const start = domRange.start;
-  const end = domRange.end;
+  const end = domRange.end || start;
 
   return {
     endContainerChildTextNodeIndex: end.textNodeIndex,
     endContainerElementCssSelector: end.cssSelector,
-    endOffset: end.offset,
+    endOffset: end.charOffset ?? end.offset ?? 0,
     startContainerChildTextNodeIndex: start.textNodeIndex,
     startContainerElementCssSelector: start.cssSelector,
-    startOffset: start.offset,
+    startOffset: start.charOffset ?? start.offset ?? 0,
   };
 }
 

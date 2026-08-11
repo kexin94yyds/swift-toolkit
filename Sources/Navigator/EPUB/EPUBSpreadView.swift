@@ -24,7 +24,7 @@ protocol EPUBSpreadViewDelegate: AnyObject {
     func spreadView(_ spreadView: EPUBSpreadView, didActivateDecoration id: Decoration.Id, inGroup group: DecorationGroup, frame: CGRect?, point: CGPoint?)
 
     /// Called when the text selection changes.
-    func spreadView(_ spreadView: EPUBSpreadView, selectionDidChange text: Locator.Text?, frame: CGRect)
+    func spreadView(_ spreadView: EPUBSpreadView, selectionDidChange selection: EPUBSelectionPayload?)
 
     /// Called when the pages visible in the spread changed.
     func spreadViewPagesDidChange(_ spreadView: EPUBSpreadView)
@@ -445,26 +445,30 @@ class EPUBSpreadView: UIView, Loggable, PageView {
     private func selectionDidChange(_ body: Any) {
         if body is NSNull {
             focusedResource = nil
-            delegate?.spreadView(self, selectionDidChange: nil, frame: .zero)
+            delegate?.spreadView(self, selectionDidChange: nil)
             return
         }
 
         guard
-            let selection = body as? [String: Any],
-            let hrefString = selection["href"] as? String,
-            let href = AnyURL(string: hrefString),
-            let text = try? Locator.Text(json: JSONValue(selection["text"])),
-            var frame = CGRect(json: selection["rect"])
+            var selection = EPUBSelectionPayload(body: body),
+            let resourceIndex = viewModel.readingOrder.firstIndexWithHREF(selection.href)
         else {
             focusedResource = nil
-            delegate?.spreadView(self, selectionDidChange: nil, frame: .zero)
-            log(.warning, "Invalid body for selectionDidChange: \(body)")
+            delegate?.spreadView(self, selectionDidChange: nil)
+            log(.warning, "Invalid selectionDidChange payload")
             return
         }
 
-        focusedResource = viewModel.readingOrder.firstIndexWithHREF(href)
+        focusedResource = resourceIndex
+        var frame = selection.frame
         frame.origin = convertPointToNavigatorSpace(frame.origin)
-        delegate?.spreadView(self, selectionDidChange: text, frame: frame)
+        selection = EPUBSelectionPayload(
+            href: selection.href,
+            locations: selection.locations,
+            text: selection.text,
+            frame: frame
+        )
+        delegate?.spreadView(self, selectionDidChange: selection)
     }
 
     /// Update webview style to userSettings.

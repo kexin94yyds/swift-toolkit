@@ -1206,17 +1206,53 @@ extension EPUBNavigatorViewController: EPUBSpreadViewDelegate {
         }
     }
 
-    func spreadView(_ spreadView: EPUBSpreadView, selectionDidChange text: Locator.Text?, frame: CGRect) {
+    func spreadView(_ spreadView: EPUBSpreadView, selectionDidChange selection: EPUBSelectionPayload?) {
         guard
-            let locator = currentLocation,
-            let text = text
+            let selection,
+            let locator = selection.makeLocator(
+                in: readingOrder,
+                baseLocator: selectionBaseLocator(for: selection.href, in: spreadView)
+            )
         else {
             viewModel.editingActions.selection = nil
             return
         }
         viewModel.editingActions.selection = Selection(
-            locator: locator.copy(text: { $0 = text }),
-            frame: frame
+            locator: locator,
+            frame: selection.frame
+        )
+    }
+
+    private func selectionBaseLocator(for href: AnyURL, in spreadView: EPUBSpreadView) -> Locator? {
+        guard let resourceIndex = readingOrder.firstIndexWithHREF(href) else {
+            return nil
+        }
+
+        let link = readingOrder[resourceIndex]
+        if
+            let currentLocation,
+            currentLocation.href.isEquivalentTo(link.url())
+        {
+            return currentLocation
+        }
+
+        if
+            let positions = positionsByReadingOrder.getOrNil(resourceIndex),
+            !positions.isEmpty
+        {
+            let progression = min(max(spreadView.progression(in: resourceIndex).lowerBound, 0), 1)
+            let positionIndex = Int(ceil(progression * Double(positions.count - 1)))
+            return positions[positionIndex].copy(
+                href: link.url(),
+                mediaType: link.mediaType ?? .xhtml,
+                locations: { $0.progression = progression }
+            )
+        }
+
+        return Locator(
+            href: link.url(),
+            mediaType: link.mediaType ?? .xhtml,
+            title: link.title
         )
     }
 

@@ -13,7 +13,7 @@ import type {
   TextPositionSelector,
   TextQuoteSelector,
 } from '../../types/api';
-import { matchQuote } from './match-quote';
+import { matchQuoteResult } from './match-quote';
 import {
   renderedOffsetToRaw,
   renderedTextFromRange,
@@ -144,7 +144,16 @@ export class TextPositionAnchor {
 type QuoteMatchOptions = {
   /** Expected position of match in text. See `matchQuote`. */
   hint?: number;
+  /** Fail instead of choosing the first equally-ranked occurrence. */
+  requireUnique?: boolean;
 };
+
+export class AmbiguousTextQuoteError extends Error {
+  constructor() {
+    super('Quote is ambiguous');
+    this.name = 'AmbiguousTextQuoteError';
+  }
+}
 
 export type TextQuoteAnchorContext = {
   prefix?: string;
@@ -242,10 +251,14 @@ export class TextQuoteAnchor {
     // translate the match offsets back to raw `textContent` positions for
     // `TextPositionAnchor`.
     const { text, brPositionsInText } = renderedTextOf(this.root);
-    const match = matchQuote(text, this.exact, {
+    const result = matchQuoteResult(text, this.exact, {
       ...this.context,
       hint: options.hint,
     });
+    if (options.requireUnique && result.ambiguous) {
+      throw new AmbiguousTextQuoteError();
+    }
+    const match = result.match;
     if (!match) {
       throw new Error('Quote not found');
     }

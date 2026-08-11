@@ -69,6 +69,11 @@ type Context = {
   hint?: number;
 };
 
+export type QuoteMatchResult = {
+  match: Match | null;
+  ambiguous: boolean;
+};
+
 /**
  * Find the best approximate match for `quote` in `text`.
  *
@@ -83,8 +88,21 @@ export function matchQuote(
   quote: string,
   context: Context = {},
 ): Match | null {
+  return matchQuoteResult(text, quote, context).match;
+}
+
+/**
+ * Find the best approximate match and report whether another candidate has
+ * the same score. Callers creating persistent anchors can use this to fail
+ * closed instead of silently choosing the first occurrence.
+ */
+export function matchQuoteResult(
+  text: string,
+  quote: string,
+  context: Context = {},
+): QuoteMatchResult {
   if (quote.length === 0) {
-    return null;
+    return { match: null, ambiguous: false };
   }
 
   // Choose the maximum number of errors to allow for the initial search.
@@ -102,7 +120,7 @@ export function matchQuote(
   const matches = search(text, quote, maxErrors);
 
   if (matches.length === 0) {
-    return null;
+    return { match: null, ambiguous: false };
   }
 
   /**
@@ -159,5 +177,9 @@ export function matchQuote(
 
   // Choose match with the highest score.
   scoredMatches.sort((a, b) => b.score - a.score);
-  return scoredMatches[0];
+  const match = scoredMatches[0];
+  const runnerUp = scoredMatches[1];
+  const ambiguous =
+    runnerUp !== undefined && Math.abs(match.score - runnerUp.score) <= 1e-12;
+  return { match, ambiguous };
 }

@@ -9,7 +9,7 @@ import {
   rectContainsPoint,
   toNativeRect,
 } from "./rect";
-import { log, logErrorMessage, rangeFromLocator } from "./utils";
+import { log, logErrorMessage, resolveLocatorRange } from "./utils";
 
 // Polyfill for iOS 13.3
 import { ResizeObserver as ResizeObserverPolyfill } from "@juggle/resize-observer";
@@ -137,13 +137,15 @@ export function DecorationGroup(groupId, groupName) {
   function add(decoration) {
     let id = groupId + "-" + lastItemId++;
 
-    let range = rangeFromLocator(decoration.locator);
-    if (!range) {
-      log("Can't locate DOM range for decoration", decoration);
+    const resolution = resolveLocatorRange(decoration.locator, {
+      requireUniqueTextQuote: true,
+    });
+    if (!resolution.range) {
+      log("Can't locate DOM range for decoration", resolution.reason);
       return;
     }
 
-    let item = { id, decoration, range };
+    let item = { id, decoration, range: resolution.range };
     items.push(item);
     layout(item);
   }

@@ -9,7 +9,8 @@
     "bundle": "webpack",
     "lint": "eslint src",
     "checkformat": "prettier --check '**/*.js'",
-    "format": "prettier --list-different --write '**/*.js'"
+    "format": "prettier --list-different --write '**/*.js'",
+    "test": "vitest run --config vitest.config.mjs"
   },
   "browserslist": [
     "iOS 13"
@@ -20,7 +21,9 @@
     "@babel/preset-typescript": "^7.29.7",
     "babel-loader": "^8.4.1",
     "eslint": "^7.32.0",
+    "jsdom": "30.0.1",
     "prettier": "2.3.1",
+    "vitest": "4.1.10",
     "webpack": "^5.107.2",
     "webpack-cli": "^5.1.4"
   },
