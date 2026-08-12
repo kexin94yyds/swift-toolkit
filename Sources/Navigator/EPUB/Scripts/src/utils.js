@@ -11,6 +11,7 @@ import {
   TextQuoteAnchor,
 } from "./vendor/hypothesis/anchoring/types";
 import { resolveDOMRange } from "./dom-range";
+import { observeSelectionChanges } from "./selection-change";
 import { normalizeSelectionText } from "./selection-text";
 import { getCurrentSelection } from "./selection";
 
@@ -136,34 +137,12 @@ function onScroll() {
   ticking = true;
 }
 
-let pendingSelectionChange;
-let selectionChangeNotification;
-document.addEventListener("selectionchange", function () {
-  // Snapshot a non-empty selection synchronously. On recent iOS releases,
-  // WebKit can collapse the DOM selection while presenting or dispatching an
-  // edit-menu action; reading it from the old debounced callback then loses
-  // the range before native code ever sees it.
-  const selection = getCurrentSelection();
-  if (selection || pendingSelectionChange === undefined) {
-    pendingSelectionChange = selection;
-  }
-
-  clearTimeout(selectionChangeNotification);
-  selectionChangeNotification = setTimeout(function () {
-    const selection = pendingSelectionChange;
-    pendingSelectionChange = undefined;
+observeSelectionChanges({
+  document,
+  getSelection: getCurrentSelection,
+  postSelection(selection) {
     webkit.messageHandlers.selectionChanged.postMessage(selection);
-
-    // If WebKit collapsed the DOM selection while the snapshot was pending,
-    // publish the clear after native code has received the valid range. The
-    // native editing-action controller retains that range until the custom
-    // action is dispatched.
-    if (selection && !getCurrentSelection()) {
-      selectionChangeNotification = setTimeout(function () {
-        webkit.messageHandlers.selectionChanged.postMessage(null);
-      }, 50);
-    }
-  }, 50);
+  },
 });
 
 export function getColumnCountPerScreen() {
